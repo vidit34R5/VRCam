@@ -5,9 +5,9 @@ import android.content.ContentValues
 import android.content.pm.PackageManager
 import android.graphics.RenderEffect
 import android.graphics.Shader
+import android.media.AudioManager
 import android.media.MediaActionSound
 import android.media.ToneGenerator
-import android.media.AudioManager
 import android.os.*
 import android.provider.MediaStore
 import android.util.Log
@@ -51,7 +51,6 @@ class MainActivity : AppCompatActivity() {
     private var isSheetOpen = false
     private var flashState = 0
     private var poseDetectionEnabled = true
-    private var currentAlignmentScore = 0f
     private var wasAligned = false
     private var lastHapticTime = 0L
     private var lastPoseTimestamp = 0L
@@ -73,7 +72,7 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { results ->
         if (results.values.all { it }) startCamera()
-        else Toast.makeText(this, "Permissions Required!", Toast.LENGTH_LONG).show()
+        else Toast.makeText(this, "Camera permission zaroori hai!", Toast.LENGTH_LONG).show()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -89,7 +88,9 @@ class MainActivity : AppCompatActivity() {
         cameraExecutor = Executors.newSingleThreadExecutor()
 
         poseDetector = PoseDetection.getClient(
-            PoseDetectorOptions.Builder().setDetectorMode(PoseDetectorOptions.STREAM_MODE).build()
+            PoseDetectorOptions.Builder()
+                .setDetectorMode(PoseDetectorOptions.STREAM_MODE)
+                .build()
         )
 
         vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -99,12 +100,16 @@ class MainActivity : AppCompatActivity() {
             getSystemService(VIBRATOR_SERVICE) as Vibrator
         }
 
-        try { toneGenerator = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 60) }
-        catch (e: Exception) { Log.e("VCam", "Tone init failed") }
+        try { 
+            toneGenerator = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 60) 
+        } catch (e: Exception) { 
+            Log.e("VCam", "Tone init failed") 
+        }
 
         if (allGranted()) startCamera() else permLauncher.launch(permissions)
         setupButtons()
         setupModes()
+        setupSegments()
         applyProgrammaticUI()
     }
 
@@ -122,7 +127,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun startCamera() {
         ProcessCameraProvider.getInstance(this).also { f ->
-            f.addListener({ cameraProvider = f.get(); bindCamera() }, ContextCompat.getMainExecutor(this))
+            f.addListener({ 
+                cameraProvider = f.get()
+                bindCamera() 
+            }, ContextCompat.getMainExecutor(this))
         }
     }
 
@@ -130,7 +138,9 @@ class MainActivity : AppCompatActivity() {
         val cp = cameraProvider ?: return
         val selector = if (isFrontCamera) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
         val preview = Preview.Builder().build().also { it.setSurfaceProvider(b.viewFinder.surfaceProvider) }
+        
         imageCapture = ImageCapture.Builder().setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY).build()
+        
         val recorder = Recorder.Builder()
             .setQualitySelector(QualitySelector.fromOrderedList(
                 listOf(Quality.UHD, Quality.FHD, Quality.HD),
@@ -141,7 +151,9 @@ class MainActivity : AppCompatActivity() {
         imageAnalysis = ImageAnalysis.Builder()
             .setTargetResolution(Size(640, 480))
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-            .build().also { it.setAnalyzer(cameraExecutor) { img -> processImageForPose(img) } }
+            .build().also { 
+                it.setAnalyzer(cameraExecutor) { img -> processImageForPose(img) } 
+            }
 
         try {
             cp.unbindAll()
@@ -150,16 +162,33 @@ class MainActivity : AppCompatActivity() {
             observeZoom()
         } catch (e: Exception) {
             Log.e("VCam", "Bind failed: ${e.message}")
+            try {
+                cp.unbindAll()
+                camera = cp.bindToLifecycle(this, selector, preview, imageCapture, videoCapture)
+                setupPinchZoom()
+                observeZoom()
+            } catch (e2: Exception) { 
+                Log.e("VCam", "Retry failed: ${e2.message}") 
+            }
         }
     }
 
     @androidx.camera.core.ExperimentalGetImage
     private fun processImageForPose(imageProxy: ImageProxy) {
-        if (!poseDetectionEnabled) { imageProxy.close(); return }
+        if (!poseDetectionEnabled) { 
+            imageProxy.close()
+            return 
+        }
         val now = System.currentTimeMillis()
-        if (now - lastPoseTimestamp < 100) { imageProxy.close(); return }
+        if (now - lastPoseTimestamp < 100) { 
+            imageProxy.close()
+            return 
+        }
         lastPoseTimestamp = now
-        val mediaImage = imageProxy.image ?: run { imageProxy.close(); return }
+        val mediaImage = imageProxy.image ?: run { 
+            imageProxy.close()
+            return 
+        }
         val inputImage = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
         
         poseDetector.process(inputImage)
@@ -167,14 +196,18 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread {
                     b.poseOverlay.updatePose(pose, imageProxy.width, imageProxy.height)
                     val score = b.poseOverlay.calculateAlignment()
-                    currentAlignmentScore = score
                     val aligned = score >= 0.9f
                     b.poseOverlay.setAligned(aligned)
                     updateShutterGlow(aligned)
-                    if (aligned && !wasAligned) triggerAlignmentSignal()
+                    
+                    if (aligned && !wasAligned) {
+                        triggerAlignmentSignal()
+                    }
                     wasAligned = aligned
-                    if (pose.allPoseLandmarks.isNotEmpty())
+                    
+                    if (pose.allPoseLandmarks.isNotEmpty()) {
                         b.tvScene.text = if (aligned) "PERFECT ✓" else "ALIGN ${(score * 100).toInt()}%"
+                    }
                 }
             }
             .addOnCompleteListener { imageProxy.close() }
@@ -194,19 +227,30 @@ class MainActivity : AppCompatActivity() {
         if (now - lastHapticTime < 2000) return
         lastHapticTime = now
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 vibrator.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 80, 60, 80), intArrayOf(0, 200, 0, 200), -1))
-            else @Suppress("DEPRECATION") vibrator.vibrate(longArrayOf(0, 80, 60, 80), -1)
+            } else {
+                @Suppress("DEPRECATION") 
+                vibrator.vibrate(longArrayOf(0, 80, 60, 80), -1)
+            }
+        } catch (e: Exception) { 
+            Log.e("VCam", "Haptic failed") 
+        }
+        try { 
+            toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 150) 
         } catch (e: Exception) {}
-        try { toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 150) } catch (e: Exception) {}
         pulseFlash()
     }
 
     private fun pulseFlash() {
         camera?.cameraControl?.enableTorch(true)
-        flashHandler.postDelayed({ camera?.cameraControl?.enableTorch(false)
-            flashHandler.postDelayed({ camera?.cameraControl?.enableTorch(true)
-                flashHandler.postDelayed({ camera?.cameraControl?.enableTorch(false) }, 100)
+        flashHandler.postDelayed({ 
+            camera?.cameraControl?.enableTorch(false)
+            flashHandler.postDelayed({ 
+                camera?.cameraControl?.enableTorch(true)
+                flashHandler.postDelayed({ 
+                    camera?.cameraControl?.enableTorch(false) 
+                }, 100)
             }, 100)
         }, 100)
     }
@@ -217,17 +261,28 @@ class MainActivity : AppCompatActivity() {
                 val cam = camera ?: return false
                 val state = cam.cameraInfo.zoomState.value ?: return false
                 val newZoom = (state.zoomRatio * det.scaleFactor).coerceIn(state.minZoomRatio, minOf(state.maxZoomRatio, 10f))
-                cam.cameraControl.setZoomRatio(newZoom); showZoomBadge(newZoom); return true
+                cam.cameraControl.setZoomRatio(newZoom)
+                showZoomBadge(newZoom)
+                return true
             }
         })
         val tapDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
-            override fun onSingleTapConfirmed(e: MotionEvent): Boolean { tapFocus(e.x, e.y); return true }
+            override fun onSingleTapConfirmed(e: MotionEvent): Boolean { 
+                tapFocus(e.x, e.y)
+                return true 
+            }
         })
-        b.viewFinder.setOnTouchListener { v, event -> scaleDetector.onTouchEvent(event); tapDetector.onTouchEvent(event); v.performClick(); true }
+        b.viewFinder.setOnTouchListener { v, event -> 
+            scaleDetector.onTouchEvent(event)
+            tapDetector.onTouchEvent(event)
+            v.performClick()
+            true 
+        }
     }
 
     private fun observeZoom() {
         camera?.cameraInfo?.zoomState?.observe(this) { state ->
+            updateZoomButtons(state.zoomRatio)
             b.tvUpscale.text = "AI ↑ ${String.format("%.1f", state.zoomRatio)}×"
         }
     }
@@ -239,36 +294,184 @@ class MainActivity : AppCompatActivity() {
         zoomHandler.postDelayed({ b.zoomIndicator.visibility = View.GONE }, 1400)
     }
 
+    private fun updateZoomButtons(zoom: Float) {
+        mapOf(b.z06x to 0.6f, b.z1x to 1f, b.z2x to 2f, b.z5x to 5f, b.z10x to 10f).forEach { (tv, level) ->
+            val active = abs(zoom - level) < 0.4f
+            tv.background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadius = 28f
+                setColor(if (active) 0x26FFFFFF.toInt() else 0x12FFFFFF.toInt())
+                setStroke(1, if (active) 0x40FFFFFF.toInt() else 0x1AFFFFFF.toInt())
+            }
+            tv.setTextColor(if (active) 0xFFFFFFFF.toInt() else 0x44FFFFFF.toInt())
+        }
+    }
+
+    private fun setZoom(ratio: Float) {
+        val cam = camera ?: return
+        val state = cam.cameraInfo.zoomState.value ?: return
+        cam.cameraControl.setZoomRatio(ratio.coerceIn(state.minZoomRatio, minOf(state.maxZoomRatio, 10f)))
+        showZoomBadge(ratio)
+    }
+
     private fun tapFocus(x: Float, y: Float) {
         val cam = camera ?: return
         val point = b.viewFinder.meteringPointFactory.createPoint(x, y)
         cam.cameraControl.startFocusAndMetering(
             FocusMeteringAction.Builder(point, FocusMeteringAction.FLAG_AF).setAutoCancelDuration(3, TimeUnit.SECONDS).build()
         )
+        b.focusRing.apply {
+            this.x = x - width / 2f
+            this.y = y - height / 2f
+            alpha = 1f
+            visibility = View.VISIBLE
+            animate().alpha(0f).setDuration(700).setStartDelay(500).withEndAction { visibility = View.INVISIBLE }.start()
+        }
     }
 
     private fun capturePhoto() {
         val ic = imageCapture ?: return
-        b.viewFinder.animate().alpha(0.1f).setDuration(60).withEndAction { b.viewFinder.animate().alpha(1f).setDuration(140).start() }.start()
+        b.viewFinder.animate().alpha(0.1f).setDuration(60).withEndAction { 
+            b.viewFinder.animate().alpha(1f).setDuration(140).start() 
+        }.start()
+        b.shutterBtn.animate().scaleX(0.85f).scaleY(0.85f).setDuration(70).withEndAction { 
+            b.shutterBtn.animate().scaleX(1f).scaleY(1f).setDuration(100).start() 
+        }.start()
         shutterSound.play(MediaActionSound.SHUTTER_CLICK)
+        
         val cv = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, "VCam_${System.currentTimeMillis()}")
             put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
             put(MediaStore.Images.Media.RELATIVE_PATH, "DCIM/VCam")
         }
+        
         ic.takePicture(
             ImageCapture.OutputFileOptions.Builder(contentResolver, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cv).build(),
             ContextCompat.getMainExecutor(this),
             object : ImageCapture.OnImageSavedCallback {
-                override fun onImageSaved(out: ImageCapture.OutputFileResults) { Toast.makeText(this@MainActivity, "✓ Saved!", Toast.LENGTH_SHORT).show() }
-                override fun onError(e: ImageCaptureException) { Toast.makeText(this@MainActivity, "Error!", Toast.LENGTH_SHORT).show() }
-            })
+                override fun onImageSaved(out: ImageCapture.OutputFileResults) { 
+                    Toast.makeText(this@MainActivity, "✓ Saved!", Toast.LENGTH_SHORT).show() 
+                }
+                override fun onError(e: ImageCaptureException) { 
+                    Toast.makeText(this@MainActivity, "Error!", Toast.LENGTH_SHORT).show() 
+                }
+            }
+        )
     }
 
-    private fun toggleRecord() { if (isRecording) stopRecord() else startRecord() }
+    private fun toggleRecord() { 
+        if (isRecording) stopRecord() else startRecord() 
+    }
 
     private fun startRecord() {
         val vc = videoCapture ?: return
         val cv = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, "VCam_${System
-                
+            put(MediaStore.MediaColumns.DISPLAY_NAME, "VCam_${System.currentTimeMillis()}")
+            put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
+            put(MediaStore.Video.Media.RELATIVE_PATH, "DCIM/VCam")
+        }
+        activeRecording = vc.output.prepareRecording(this,
+            MediaStoreOutputOptions.Builder(contentResolver, MediaStore.Video.Media.EXTERNAL_CONTENT_URI).setContentValues(cv).build())
+            .withAudioEnabled().start(ContextCompat.getMainExecutor(this)) { }
+            
+        isRecording = true
+        b.recPill.visibility = View.VISIBLE
+        b.shutterBtn.background = android.graphics.drawable.GradientDrawable().apply {
+            shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+            cornerRadius = 12f
+            setColor(0xFFFF3B30.toInt())
+        }
+        recSeconds = 0
+        
+        val r = object : Runnable {
+            override fun run() {
+                recSeconds++
+                b.tvRecTime.text = "${(recSeconds / 60).toString().padStart(2, '0')}:${(recSeconds % 60).toString().padStart(2, '0')}"
+                if (isRecording) recHandler.postDelayed(this, 1000)
+            }
+        }
+        recHandler.post(r)
+    }
+
+    private fun stopRecord() {
+        activeRecording?.stop()
+        activeRecording = null
+        isRecording = false
+        b.recPill.visibility = View.GONE
+        b.shutterBtn.background = android.graphics.drawable.GradientDrawable().apply {
+            shape = android.graphics.drawable.GradientDrawable.OVAL
+            setColor(0xFFFFFFFF.toInt())
+        }
+        recHandler.removeCallbacksAndMessages(null)
+        b.tvRecTime.text = "00:00"
+        Toast.makeText(this, "✓ Video saved!", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun setupButtons() {
+        b.shutterBtn.setOnClickListener { 
+            when (currentMode) { 
+                Mode.VIDEO, Mode.SLOWMO -> toggleRecord()
+                else -> capturePhoto() 
+            } 
+        }
+        b.btnBack.setOnClickListener { 
+            if (isSheetOpen) closeSheet() else onBackPressedDispatcher.onBackPressed() 
+        }
+        b.btnFlip.setOnClickListener { 
+            if (isRecording) stopRecord()
+            isFrontCamera = !isFrontCamera
+            it.animate().rotationBy(180f).setDuration(280).start()
+            bindCamera() 
+        }
+        b.btnFlash.setOnClickListener {
+            flashState = (flashState + 1) % 3
+            imageCapture?.flashMode = when (flashState) { 
+                1 -> ImageCapture.FLASH_MODE_ON
+                2 -> ImageCapture.FLASH_MODE_AUTO
+                else -> ImageCapture.FLASH_MODE_OFF 
+            }
+            Toast.makeText(this, listOf("Flash Off", "Flash On", "Flash Auto")[flashState], Toast.LENGTH_SHORT).show()
+        }
+        b.btnSettings.setOnClickListener { if (isSheetOpen) closeSheet() else openSheet() }
+        b.btnCloseSheet.setOnClickListener { closeSheet() }
+        b.btnGallery.setOnClickListener { 
+            startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW).apply { type = "image/*" }) 
+        }
+        b.z06x.setOnClickListener { setZoom(0.6f) }
+        b.z1x.setOnClickListener { setZoom(1f) }
+        b.z2x.setOnClickListener { setZoom(2f) }
+        b.z5x.setOnClickListener { setZoom(5f) }
+        b.z10x.setOnClickListener { setZoom(10f) }
+        
+        b.swAI.setOnCheckedChangeListener { _, on -> 
+            poseDetectionEnabled = on
+            b.poseOverlay.visibility = if (on) View.VISIBLE else View.GONE
+            b.aiDot.alpha = if (on) 1f else 0.3f 
+        }
+        b.swGrid.setOnCheckedChangeListener { _, on -> 
+            b.gridOverlay.visibility = if (on) View.VISIBLE else View.GONE 
+        }
+        b.rowAmoled.setOnClickListener { b.checkAmoled.alpha = 1f; b.checkWhite.alpha = 0.2f }
+        b.rowWhite.setOnClickListener { b.checkAmoled.alpha = 0.2f; b.checkWhite.alpha = 1f }
+    }
+
+    private fun setupModes() {
+        val tabs = listOf(b.mSlowmo to Mode.SLOWMO, b.mVideo to Mode.VIDEO, b.mPhoto to Mode.PHOTO, b.mPortrait to Mode.PORTRAIT, b.mNight to Mode.NIGHT, b.mPro to Mode.PRO)
+        tabs.forEach { (tv, mode) ->
+            tv.setOnClickListener {
+                if (isRecording) stopRecord()
+                currentMode = mode
+                tabs.forEach { (t, _) -> 
+                    t.background = null
+                    t.setTextColor(0x44FFFFFF.toInt()) 
+                }
+                tv.setTextColor(0xFFFFFFFF.toInt())
+                val isVideo = mode == Mode.VIDEO || mode == Mode.SLOWMO
+                if (!isRecording) {
+                    b.shutterBtn.background = android.graphics.drawable.GradientDrawable().apply {
+                        shape = if (isVideo) android.graphics.drawable.GradientDrawable.RECTANGLE else android.graphics.drawable.GradientDrawable.OVAL
+                        cornerRadius = if (isVideo) 12f else 0f
+                        setColor(if (isVideo) 0xFFFF3B30.toInt() else 0xFFFFFFFF.toInt())
+                    }
+                }
+            
