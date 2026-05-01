@@ -475,3 +475,67 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             
+                b.tvScene.text = when (mode) { 
+                    Mode.PHOTO -> "LANDSCAPE"
+                    Mode.VIDEO -> "VIDEO"
+                    Mode.PORTRAIT -> "FACE"
+                    Mode.NIGHT -> "NIGHT"
+                    Mode.PRO -> "PRO"
+                    Mode.SLOWMO -> "SLOMO" 
+                }
+            }
+        }
+    }
+
+    private fun setupSegments() {
+        fun segGroup(views: List<TextView>) = views.forEach { tv -> 
+            tv.setOnClickListener { 
+                views.forEach { 
+                    it.setBackgroundColor(0)
+                    it.setTextColor(0x66FFFFFF.toInt()) 
+                }
+                tv.setBackgroundColor(0x26FFFFFF.toInt())
+                tv.setTextColor(0xFFFFFFFF.toInt()) 
+            } 
+        }
+        segGroup(listOf(b.fps30, b.fps60, b.fps120))
+        segGroup(listOf(b.encH264, b.encHEVC))
+    }
+
+    private fun openSheet() {
+        isSheetOpen = true
+        b.settingsSheet.visibility = View.VISIBLE
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            b.viewFinder.setRenderEffect(RenderEffect.createBlurEffect(20f, 20f, Shader.TileMode.CLAMP))
+        }
+        b.settingsSheet.translationY = 1400f
+        b.settingsSheet.animate().translationY(0f).setDuration(380).setInterpolator(android.view.animation.DecelerateInterpolator(2f)).start()
+    }
+
+    private fun closeSheet() {
+        isSheetOpen = false
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            b.viewFinder.setRenderEffect(null)
+        }
+        b.settingsSheet.animate().translationY(1400f).setDuration(300)
+            .setInterpolator(android.view.animation.AccelerateInterpolator(2f))
+            .withEndAction { b.settingsSheet.visibility = View.GONE }.start()
+    }
+
+    private fun allGranted() = permissions.all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }
+
+    override fun onBackPressed() { 
+        if (isSheetOpen) closeSheet() else super.onBackPressed() 
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        cameraExecutor.shutdown()
+        shutterSound.release()
+        poseDetector.close()
+        toneGenerator?.release()
+        recHandler.removeCallbacksAndMessages(null)
+        zoomHandler.removeCallbacksAndMessages(null)
+        flashHandler.removeCallbacksAndMessages(null)
+    }
+}
